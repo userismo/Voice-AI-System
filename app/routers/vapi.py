@@ -53,8 +53,24 @@ def _result(call_id: str, payload: Any):
 
 @router.post("/tools")
 async def vapi_tools(request: Request, db: Session = Depends(get_db)):
+
     body = await request.json()
-    calls = _walk_tool_calls(body)
+    raw_calls = _walk_tool_calls(body)
+    
+    # Vapi payloads can contain the same tool call in multiple nested locations.
+    # Process each tool-call ID only once.
+    calls = []
+    seen_call_ids = set()
+    
+    for raw_call in raw_calls:
+        call_id, _, _ = _parse_call(raw_call)
+    
+        if call_id in seen_call_ids:
+            continue
+    
+        seen_call_ids.add(call_id)
+        calls.append(raw_call)
+    
     if not calls:
         raise HTTPException(status_code=400, detail="No Vapi tool call found in payload")
 
@@ -64,7 +80,26 @@ async def vapi_tools(request: Request, db: Session = Depends(get_db)):
         try:
             if name == "save_patient":
                 payload = PatientCreate.model_validate(args)
+                # Safety against webhook retries / duplicate saves
+                existing = svc.find_by_phone(db, payload.phone_number)
+            
+                if existing:
+                    data = PatientRead.model_validate(existing).model_dump(mode="json")
+                    results.append(
+                        _result(
+                            call_id,
+                            {
+                                "success": True,
+                                "duplicate": True,
+                                "message": "A patient with this phone number already exists.",
+                                "patient": data,
+                            },
+                        )
+                    )
+                    continue
+            
                 patient = svc.create_patient(db, payload)
+                
                 data = PatientRead.model_validate(patient).model_dump(mode="json")
                 # Logging minimum required final data payload for observability.
                 logger.info("patient_saved payload=%s", json.dumps(data, default=str))
