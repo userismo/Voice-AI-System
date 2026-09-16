@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .database import Base, engine
 from .routers.patients import router as patients_router
 from .routers.vapi import router as vapi_router
+from .routers.dashboard import router as dashboard_router
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -23,6 +24,7 @@ app = FastAPI(
 
 app.include_router(patients_router)
 app.include_router(vapi_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/")
